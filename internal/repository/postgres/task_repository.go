@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,12 +21,23 @@ func New(pool *pgxpool.Pool) *Repository {
 
 func (r *Repository) Create(ctx context.Context, task *taskdomain.Task) (*taskdomain.Task, error) {
 	const query = `
-		INSERT INTO tasks (title, description, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, title, description, status, created_at, updated_at
+		INSERT INTO tasks (title, description, status, created_at, updated_at, repeat_type, repeat_config, repeat_until, repeat_time, parent_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, title, description, status, created_at, updated_at, repeat_type, repeat_config, next_occurrence, repeat_until, repeat_time, parent_id
 	`
 
-	row := r.pool.QueryRow(ctx, query, task.Title, task.Description, task.Status, task.CreatedAt, task.UpdatedAt)
+	row := r.pool.QueryRow(ctx, query,
+		task.Title,
+		task.Description,
+		task.Status,
+		task.CreatedAt,
+		task.UpdatedAt,
+		task.RepeatType,
+		task.RepeatConfig,
+		task.RepeatUntil,
+		task.RepeatTime,
+		task.ParentID,
+	)
 	created, err := scanTask(row)
 	if err != nil {
 		return nil, err
@@ -36,7 +48,7 @@ func (r *Repository) Create(ctx context.Context, task *taskdomain.Task) (*taskdo
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (*taskdomain.Task, error) {
 	const query = `
-		SELECT id, title, description, status, created_at, updated_at
+		SELECT id, title, description, status, created_at, updated_at, repeat_type, repeat_config, next_occurrence, repeat_until, repeat_time, parent_id
 		FROM tasks
 		WHERE id = $1
 	`
@@ -60,12 +72,14 @@ func (r *Repository) Update(ctx context.Context, task *taskdomain.Task) (*taskdo
 		SET title = $1,
 			description = $2,
 			status = $3,
-			updated_at = $4
-		WHERE id = $5
-		RETURNING id, title, description, status, created_at, updated_at
+			updated_at = $4,
+			repeat_type = $5,
+			repeat_config = $6
+		WHERE id = $7
+		RETURNING id, title, description, status, created_at, updated_at, repeat_type, repeat_config, next_occurrence, repeat_until, repeat_time, parent_id
 	`
 
-	row := r.pool.QueryRow(ctx, query, task.Title, task.Description, task.Status, task.UpdatedAt, task.ID)
+	row := r.pool.QueryRow(ctx, query, task.Title, task.Description, task.Status, task.UpdatedAt, task.RepeatType, task.RepeatConfig, task.ID)
 	updated, err := scanTask(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -95,7 +109,7 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 
 func (r *Repository) List(ctx context.Context) ([]taskdomain.Task, error) {
 	const query = `
-		SELECT id, title, description, status, created_at, updated_at
+		SELECT id, title, description, status, created_at, updated_at, repeat_type, repeat_config, next_occurrence, repeat_until, repeat_time, parent_id
 		FROM tasks
 		ORDER BY id DESC
 	`
@@ -140,6 +154,12 @@ func scanTask(scanner taskScanner) (*taskdomain.Task, error) {
 		&status,
 		&task.CreatedAt,
 		&task.UpdatedAt,
+		&task.RepeatType,
+		&task.RepeatConfig,
+		&task.NextOccurrence,
+		&task.RepeatUntil,
+		&task.RepeatTime,
+		&task.ParentID,
 	); err != nil {
 		return nil, err
 	}
@@ -147,4 +167,36 @@ func scanTask(scanner taskScanner) (*taskdomain.Task, error) {
 	task.Status = taskdomain.Status(status)
 
 	return &task, nil
+}
+
+func (r *Repository) GetDueRecurringTasks(ctx context.Context, now time.Time) ([]taskdomain.Task, error) {
+	const query = `
+		SELECT id, title, description, status, created_at, updated_at, repeat_type, repeat_config, next_occurrence, repeat_until, repeat_time, parent_id
+		FROM tasks
+		WHERE repeat_type IS NOT NULL 
+		  AND repeat_type != ''
+		  AND (next_occurrence IS NOT NULL AND next_occurrence <= $1)
+		ORDER BY id
+	`
+
+	rows, err := r.pool.Query(ctx, query, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tasks := make([]taskdomain.Task, 0)
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, *task)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
 }

@@ -3,7 +3,7 @@
   "info": {
     "title": "Task Service API",
     "version": "1.0.0",
-    "description": "CRUD API for tasks built with clean architecture."
+    "description": "CRUD API for tasks built with clean architecture. Supports task recurrence (daily, monthly, parity, specific dates)."
   },
   "servers": [
     {
@@ -169,6 +169,29 @@
             "type": "string",
             "enum": ["new", "in_progress", "done"],
             "example": "new"
+          },
+          "repeat_type": {
+            "type": "string",
+            "enum": ["daily", "monthly", "specific_dates", "parity"],
+            "description": "Тип периодичности",
+            "example": "daily"
+          },
+          "repeat_config": {
+            "type": "object",
+            "description": "Настройки периодичности",
+            "example": {"interval": 1}
+          },
+          "repeat_until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата окончания повторений",
+            "example": "2026-12-31T23:59:59Z"
+          },
+          "repeat_time": {
+            "type": "string",
+            "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Время выполнения задачи (HH:MM)",
+            "example": "11:00"
           }
         }
       },
@@ -188,39 +211,99 @@
             "type": "string",
             "enum": ["new", "in_progress", "done"],
             "example": "in_progress"
+          },
+          "repeat_type": {
+            "type": "string",
+            "enum": ["daily", "monthly", "specific_dates", "parity"],
+            "description": "Тип периодичности"
+          },
+          "repeat_config": {
+            "type": "object",
+            "description": "Настройки периодичности"
+          },
+          "repeat_until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата окончания повторений",
+            "example": "2026-12-31T23:59:59Z"
+          },
+          "repeat_time": {
+            "type": "string",
+            "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Время выполнения задачи (HH:MM)",
+            "example": "11:00"
           }
         }
       },
       "Task": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer", "format": "int64", "example": 1 },
-          "title": { "type": "string", "example": "Prepare release" },
-          "description": {
-            "type": "string",
-            "example": "Collect release notes and check migrations"
+          "id": { 
+            "type": "integer", 
+            "format": "int64", 
+            "example": 1 
           },
-          "status": {
-            "type": "string",
-            "enum": ["new", "in_progress", "done"],
-            "example": "new"
+          "title": { 
+            "type": "string", 
+            "example": "Prepare release" 
           },
-          "created_at": {
+          "description": { 
+            "type": "string", 
+            "example": "Collect release notes and check migrations" 
+          },
+          "status": { 
+            "type": "string", 
+            "enum": ["new", "in_progress", "done"], 
+            "example": "new" 
+          },
+          "created_at": { 
+            "type": "string", 
+            "format": "date-time", 
+            "example": "2026-03-24T00:00:00Z" 
+          },
+          "updated_at": { 
+            "type": "string", 
+            "format": "date-time", 
+            "example": "2026-03-24T00:00:00Z" 
+          },
+          "repeat_type": { 
+            "type": "string", 
+            "description": "Тип периодичности" 
+          },
+          "repeat_config": { 
+            "type": "object", 
+            "description": "Настройки периодичности" 
+          },
+          "next_occurrence": { 
+            "type": "string", 
+            "format": "date-time", 
+            "description": "Следующая дата выполнения" 
+          },
+          "parent_id": { 
+            "type": "integer", 
+            "format": "int64", 
+            "description": "ID родительской задачи" 
+          },
+          "repeat_until": {
             "type": "string",
             "format": "date-time",
-            "example": "2026-03-24T00:00:00Z"
+            "description": "Дата окончания повторений",
+            "example": "2026-12-31T23:59:59Z"
           },
-          "updated_at": {
+          "repeat_time": {
             "type": "string",
-            "format": "date-time",
-            "example": "2026-03-24T00:00:00Z"
+            "description": "Время выполнения задачи (HH:MM)",
+            "example": "11:00"
           }
         }
       },
       "Error": {
         "type": "object",
         "properties": {
-          "error": { "type": "string", "example": "task not found" }
+          "error": { 
+            "type": "string", 
+            "example": "task not found" 
+          }
         }
       }
     }

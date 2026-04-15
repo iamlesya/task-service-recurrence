@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -28,9 +29,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*taskdomain.Ta
 	}
 
 	model := &taskdomain.Task{
-		Title:       normalized.Title,
-		Description: normalized.Description,
-		Status:      normalized.Status,
+		Title:        normalized.Title,
+		Description:  normalized.Description,
+		Status:       normalized.Status,
+		RepeatType:   input.RepeatType,
+		RepeatConfig: input.RepeatConfig,
+		RepeatUntil:  input.RepeatUntil,
+		RepeatTime:   input.RepeatTime,
 	}
 	now := s.now()
 	model.CreatedAt = now
@@ -122,4 +127,137 @@ func validateUpdateInput(input UpdateInput) (UpdateInput, error) {
 	}
 
 	return input, nil
+}
+
+func (s *Service) GenerateNextTasks(ctx context.Context) error {
+	now := s.now()
+
+	tasks, err := s.repo.GetDueRecurringTasks(ctx, now)
+	if err != nil {
+		return fmt.Errorf("get due recurring tasks: %w", err)
+	}
+
+	for _, parentTask := range tasks {
+		if parentTask.RepeatUntil != nil && parentTask.RepeatUntil.Before(now) {
+			parentTask.RepeatType = ""
+			parentTask.RepeatConfig = nil
+			parentTask.RepeatUntil = nil
+			parentTask.NextOccurrence = nil
+			_, _ = s.repo.Update(ctx, &parentTask)
+			continue
+		}
+
+		newTask := &taskdomain.Task{
+			Title:        parentTask.Title,
+			Description:  parentTask.Description,
+			Status:       taskdomain.StatusNew,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+			RepeatType:   parentTask.RepeatType,
+			RepeatConfig: parentTask.RepeatConfig,
+			ParentID:     &parentTask.ID,
+		}
+
+		_, err := s.repo.Create(ctx, newTask)
+		if err != nil {
+			fmt.Printf("failed to create recurring task for parent %d: %v\n", parentTask.ID, err)
+			continue
+		}
+
+		nextDate := calculateNextOccurrence(now, &parentTask)
+
+		parentTask.NextOccurrence = nextDate
+		parentTask.UpdatedAt = now
+
+		_, err = s.repo.Update(ctx, &parentTask)
+		if err != nil {
+			fmt.Printf("failed to update parent task %d next_occurrence: %v\n", parentTask.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func calculateNextOccurrence(now time.Time, task *taskdomain.Task) *time.Time {
+	if task.RepeatType == "" {
+		return nil
+	}
+
+	targetHour := now.Hour()
+	targetMinute := now.Minute()
+
+	if task.RepeatTime != "" {
+		fmt.Sscanf(task.RepeatTime, "%d:%d", &targetHour, &targetMinute)
+	}
+
+	switch task.RepeatType {
+	case "daily":
+		var config struct {
+			Interval int `json:"interval"`
+		}
+		_ = json.Unmarshal(task.RepeatConfig, &config)
+		if config.Interval <= 0 {
+			config.Interval = 1
+		}
+		next := time.Date(now.Year(), now.Month(), now.Day(), targetHour, targetMinute, 0, 0, time.UTC)
+
+		if next.Before(now) {
+			next = next.AddDate(0, 0, config.Interval)
+		} else if config.Interval > 1 {
+			next = next.AddDate(0, 0, config.Interval-1)
+		}
+		return &next
+
+	case "monthly":
+		var config struct {
+			DayOfMonth int `json:"day_of_month"`
+		}
+		_ = json.Unmarshal(task.RepeatConfig, &config)
+		if config.DayOfMonth < 1 || config.DayOfMonth > 31 {
+			config.DayOfMonth = 1
+		}
+		next := time.Date(now.Year(), now.Month()+1, config.DayOfMonth, targetHour, targetMinute, 0, 0, time.UTC)
+		return &next
+
+	case "parity":
+		var config struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal(task.RepeatConfig, &config)
+
+		next := now.AddDate(0, 0, 1)
+		for {
+			day := next.Day()
+			if config.Type == "even" && day%2 == 0 {
+				break
+			}
+			if config.Type == "odd" && day%2 == 1 {
+				break
+			}
+			next = next.AddDate(0, 0, 1)
+		}
+		result := time.Date(next.Year(), next.Month(), next.Day(), targetHour, targetMinute, 0, 0, time.UTC)
+		return &result
+
+	case "specific_dates":
+		var config struct {
+			Dates []string `json:"dates"`
+		}
+		_ = json.Unmarshal(task.RepeatConfig, &config)
+
+		today := now.Format("2006-01-02")
+		for _, date := range config.Dates {
+			if date > today {
+				next, err := time.Parse("2006-01-02", date)
+				if err != nil {
+					return nil
+				}
+				result := time.Date(next.Year(), next.Month(), next.Day(), targetHour, targetMinute, 0, 0, time.UTC)
+				return &result
+			}
+		}
+		return nil
+	}
+
+	return nil
 }

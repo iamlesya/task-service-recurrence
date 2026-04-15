@@ -37,6 +37,24 @@ func main() {
 
 	taskRepo := postgresrepo.New(pool)
 	taskUsecase := task.NewService(taskRepo)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("stopping recurring tasks generator")
+				return
+			case <-ticker.C:
+				if err := taskUsecase.GenerateNextTasks(context.Background()); err != nil {
+					logger.Error("generate next tasks", "error", err)
+				}
+			}
+		}
+	}()
+
 	taskHandler := httphandlers.NewTaskHandler(taskUsecase)
 	docsHandler := swaggerdocs.NewHandler()
 	router := transporthttp.NewRouter(taskHandler, docsHandler)

@@ -1,0 +1,8 @@
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS fk_tasks_parent;
+DROP INDEX IF EXISTS idx_tasks_next_occurrence;
+ALTER TABLE tasks DROP COLUMN IF EXISTS repeat_type;
+ALTER TABLE tasks DROP COLUMN IF EXISTS repeat_config;
+ALTER TABLE tasks DROP COLUMN IF EXISTS next_occurrence;
+ALTER TABLE tasks DROP COLUMN IF EXISTS parent_id;
+ALTER TABLE tasks DROP COLUMN IF EXISTS repeat_until;
+ALTER TABLE tasks DROP COLUMN IF EXISTS repeat_time;  

@@ -1,6 +1,8 @@
 package task
 
-import "time"
+import (
+	"time"
+)
 
 type Status string
 
@@ -17,6 +19,14 @@ type Task struct {
 	Status      Status    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	RepeatType     string     `json:"repeat_type,omitempty"`
+	RepeatConfig   []byte     `json:"repeat_config,omitempty"`
+	NextOccurrence *time.Time `json:"next_occurrence,omitempty"`
+	ParentID       *int64     `json:"parent_id,omitempty"`
+	RepeatTime     string     `json:"repeat_time,omitempty"`
+
+	RepeatUntil *time.Time `json:"repeat_until,omitempty"`
 }
 
 func (s Status) Valid() bool {
